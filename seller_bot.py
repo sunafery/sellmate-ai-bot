@@ -215,7 +215,17 @@ def build_system_prompt(settings_):
         "long": "Write a comprehensive, detailed listing."
     }
 
-    lang_rule = "Respond in English." if lang == "en" else "Respond in " + lang + "."
+    lang_names_full = {
+        "en": "English", "es": "Spanish", "de": "German", "fr": "French",
+        "it": "Italian", "pt": "Portuguese", "ru": "Russian",
+        "ja": "Japanese", "zh": "Chinese", "ar": "Arabic"
+    }
+    lang_full = lang_names_full.get(lang, "English")
+    lang_rule = (
+        "CRITICAL: You MUST respond entirely in " + lang_full + ". "
+        "Every word of your response must be in " + lang_full + ". "
+        "Do not use any other language under any circumstances."
+    )
 
     return (
         "You are SellMate AI, the world's most advanced AI selling assistant for online marketplace sellers. "
@@ -718,8 +728,16 @@ def settings_value_callback(call):
         s["length"] = data.replace("set_length_", "")
         safe_edit(call, "📄 Choose listing length:", build_length_markup(s))
     elif data.startswith("set_language_"):
-        s["language"] = data.replace("set_language_", "")
-        safe_edit(call, "🌍 Choose response language:", build_language_markup(s))
+        new_lang = data.replace("set_language_", "")
+        s["language"] = new_lang
+        user_history[uid] = []
+        lang_names = {
+            "en": "English", "es": "Spanish", "de": "German", "fr": "French",
+            "it": "Italian", "pt": "Portuguese", "ru": "Russian",
+            "ja": "Japanese", "zh": "Chinese", "ar": "Arabic"
+        }
+        bot.answer_callback_query(call.id, "Language set to " + lang_names.get(new_lang, new_lang))
+        safe_edit(call, "🌍 Language changed to " + lang_names.get(new_lang, new_lang) + "!\n\nI'll now respond in this language. Start a new request anytime.", build_language_markup(s))
 
 @bot.callback_query_handler(func=lambda call: call.data in ["pay_starter", "pay_pro", "pay_business"])
 def stars_payment_callback(call):
@@ -799,15 +817,17 @@ def got_payment(message):
 def send_limit_message(chat_id):
     markup = InlineKeyboardMarkup(row_width=1)
     markup.add(
+        InlineKeyboardButton("🥇 Business — 1200 ⭐/mo (All features)", callback_data="pay_business"),
         InlineKeyboardButton("🥈 Pro — 500 ⭐/mo (Unlimited)", callback_data="pay_pro"),
-        InlineKeyboardButton("🥉 Starter — 200 ⭐/mo (50 req)", callback_data="pay_starter"),
+        InlineKeyboardButton("🥉 Starter — 200 ⭐/mo (50 requests)", callback_data="pay_starter"),
         InlineKeyboardButton("🎁 Invite friends for free requests", callback_data="referral_hint")
     )
     bot.send_message(chat_id,
         "✨ You've used all your free requests!\n\n"
-        "Upgrade to keep writing listings that sell:\n\n"
-        "🥈 Pro — Unlimited requests · All platforms · Ad copy · Keywords\n"
-        "🥉 Starter — 50 requests/month · Perfect to get started\n\n"
+        "Choose a plan to keep going:\n\n"
+        "🥇 Business — Unlimited + competitor analysis + bulk generation + priority support\n"
+        "🥈 Pro — Unlimited requests · All platforms · Ad copy · Keywords · Photo analysis\n"
+        "🥉 Starter — 50 requests/month · All platforms · Perfect to get started\n\n"
         "Or invite a friend and earn +" + str(REFERRAL_BONUS) + " free requests each.",
         reply_markup=markup)
 
@@ -852,6 +872,8 @@ def handle_photo(message):
     except Exception:
         bot.reply_to(message, "Couldn't process the photo. Try again or describe the item in text.")
 
+user_last_request = {}
+
 @bot.message_handler(func=lambda m: True)
 def generate(message):
     uid = message.from_user.id
@@ -861,6 +883,18 @@ def generate(message):
 
     if not has_requests(uid):
         send_limit_message(message.chat.id)
+        return
+
+    last = user_last_request.get(uid, "")
+    is_duplicate = (message.text.strip().lower() == last.strip().lower()) and last != ""
+
+    if is_duplicate:
+        bot.reply_to(message,
+            "♻️ This is the same request as before — I won't charge a credit for it.\n\n"
+            "Here's the previous result again, or ask me to rewrite it differently.")
+        items = user_text_history.get(uid, [])
+        if items:
+            bot.send_message(message.chat.id, items[-1] + get_footer(uid))
         return
 
     bot.send_chat_action(message.chat.id, 'typing')
@@ -877,6 +911,7 @@ def generate(message):
         text = clean_text(response.choices[0].message.content)
         history.append({"role": "assistant", "content": text})
         add_to_text_history(uid, text)
+        user_last_request[uid] = message.text
         deduct_request(uid)
         bot.reply_to(message, text + get_footer(uid))
     except Exception:
