@@ -395,7 +395,7 @@ def build_language_markup(s):
     markup.add(InlineKeyboardButton("⬅️ Back", callback_data="menu_settings"))
     return markup
 
-# ==================== CRYPTO PAYMENT (НОВОЕ) ====================
+# ==================== CRYPTO PAYMENT ====================
 def create_crypto_invoice(amount_usd, plan_name, uid):
     if not CRYPTO_BOT_TOKEN:
         return None
@@ -454,7 +454,7 @@ try:
 except Exception:
     pass
 
-# (все @bot.message_handler и @bot.callback_query_handler от start до settings_value_callback остаются без изменений)
+# (все @bot.message_handler и callback от start до settings_value_callback остаются без изменений)
 
 @bot.callback_query_handler(func=lambda call: call.data == "pay_usdt")
 def usdt_menu_callback(call):
@@ -509,7 +509,101 @@ def got_payment(message):
         "Valid until: " + expiry.strftime("%m/%d/%Y") + "\n\n"
         "Let's go! Send me a product to write your first listing. 🚀")
 
-# (весь остальной код от send_limit_message до конца остается без изменений)
+def send_limit_message(chat_id):
+    markup = InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        InlineKeyboardButton("🥇 Business — 1200 ⭐/mo (All features)", callback_data="pay_business"),
+        InlineKeyboardButton("🥈 Pro — 500 ⭐/mo (Unlimited)", callback_data="pay_pro"),
+        InlineKeyboardButton("🥉 Starter — 200 ⭐/mo (50 requests)", callback_data="pay_starter"),
+        InlineKeyboardButton("🎁 Invite friends for free requests", callback_data="referral_hint")
+    )
+    bot.send_message(chat_id,
+        "✨ You've used all your free requests!\n\n"
+        "Choose a plan to keep going:\n\n"
+        "🥇 Business — Unlimited + competitor analysis + bulk generation + priority support\n"
+        "🥈 Pro — Unlimited requests · All platforms · Ad copy · Keywords · Photo analysis\n"
+        "🥉 Starter — 50 requests/month · All platforms · Perfect to get started\n\n"
+        "Or invite a friend and earn +" + str(REFERRAL_BONUS) + " free requests each.",
+        reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data == "referral_hint")
+def referral_hint(call):
+    uid = call.from_user.id
+    bot.answer_callback_query(call.id)
+    link = "https://t.me/" + BOT_USERNAME + "?start=ref_" + str(uid)
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("📤 Share link", switch_inline_query=link))
+    bot.send_message(call.message.chat.id, "Your referral link:\n" + link, reply_markup=markup)
+
+@bot.message_handler(content_types=['photo'])
+def handle_photo(message):
+    uid = message.from_user.id
+    all_users.add(uid)
+    if not has_requests(uid):
+        send_limit_message(message.chat.id)
+        return
+    bot.send_chat_action(message.chat.id, 'typing')
+    try:
+        file_info = bot.get_file(message.photo[-1].file_id)
+        downloaded = bot.download_file(file_info.file_path)
+        b64 = base64.b64encode(downloaded).decode('utf-8')
+        caption = message.caption if message.caption else "Identify this product and write a complete marketplace listing with title, description, and tags."
+        s = get_settings(uid)
+        response = client.chat.completions.create(
+            model=VISION_MODEL,
+            messages=[
+                {"role": "system", "content": build_system_prompt(s) + " If the user's caption explicitly names the item or brand, trust that completely over your visual guess."},
+                {"role": "user", "content": [
+                    {"type": "text", "text": caption},
+                    {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + b64}}
+                ]}
+            ],
+            max_tokens=800
+        )
+        text = clean_text(response.choices[0].message.content)
+        add_to_text_history(uid, text)
+        deduct_request(uid)
+        bot.reply_to(message, text + get_footer(uid))
+    except Exception:
+        bot.reply_to(message, "Couldn't process the photo. Try again or describe the item in text.")
+
+user_last_request = {}
+
+@bot.message_handler(func=lambda m: True)
+def generate(message):
+    uid = message.from_user.id
+    all_users.add(uid)
+    history = get_user_state(uid)
+    settings_ = get_settings(uid)
+    if not has_requests(uid):
+        send_limit_message(message.chat.id)
+        return
+    last = user_last_request.get(uid, "")
+    is_duplicate = (message.text.strip().lower() == last.strip().lower()) and last != ""
+    if is_duplicate:
+        bot.reply_to(message,
+            "♻️ This is the same request as before — I won't charge a credit for it.\n\n"
+            "Here's the previous result again, or ask me to rewrite it differently.")
+        items = user_text_history.get(uid, [])
+        if items:
+            bot.send_message(message.chat.id, items[-1] + get_footer(uid))
+        return
+    bot.send_chat_action(message.chat.id, 'typing')
+    if len(history) == 0:
+        history.append({"role": "system", "content": build_system_prompt(settings_)})
+    history.append({"role": "user", "content": message.text})
+    trimmed = [history[0]] + history[-11:] if len(history) > 12 else history
+    model_name = MODELS.get(settings_.get("model", "smart"), MODELS["smart"])
+    try:
+        response = client.chat.completions.create(model=model_name, messages=trimmed, max_tokens=800, temperature=0.8)
+        text = clean_text(response.choices[0].message.content)
+        history.append({"role": "assistant", "content": text})
+        add_to_text_history(uid, text)
+        user_last_request[uid] = message.text
+        deduct_request(uid)
+        bot.reply_to(message, text + get_footer(uid))
+    except Exception:
+        bot.reply_to(message, "Something went wrong. Please try again in a minute.")
 
 print("SellMate AI is running...")
 bot.polling(none_stop=True)
