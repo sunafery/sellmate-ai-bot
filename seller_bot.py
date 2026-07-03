@@ -312,11 +312,11 @@ def build_usdt_markup():
 def build_settings_main_markup():
     markup = InlineKeyboardMarkup(row_width=1)
     markup.add(
-        InlineKeyboardButton("🛍️ Platform >", callback_data="set_open_platform"),
-        InlineKeyboardButton("🤖 AI Model >", callback_data="set_open_model"),
-        InlineKeyboardButton("🎨 Tone >", callback_data="set_open_tone"),
-        InlineKeyboardButton("📄 Length >", callback_data="set_open_length"),
-        InlineKeyboardButton("🌍 Language >", callback_data="set_open_language"),
+        InlineKeyboardButton("🛍️ Platform  >", callback_data="set_open_platform"),
+        InlineKeyboardButton("🤖 AI Model  >", callback_data="set_open_model"),
+        InlineKeyboardButton("🎨 Tone  >", callback_data="set_open_tone"),
+        InlineKeyboardButton("📄 Length  >", callback_data="set_open_length"),
+        InlineKeyboardButton("🌍 Language  >", callback_data="set_open_language"),
         InlineKeyboardButton("🔄 Reset to defaults", callback_data="set_reset"),
         InlineKeyboardButton("⬅️ Back", callback_data="menu_main")
     )
@@ -395,33 +395,28 @@ def build_language_markup(s):
     markup.add(InlineKeyboardButton("⬅️ Back", callback_data="menu_settings"))
     return markup
 
-# ==================== CRYPTO PAYMENT ====================
-def create_crypto_invoice(amount_usd, plan_name, uid):
+def create_crypto_invoice(amount_usd, plan_name, payload):
     if not CRYPTO_BOT_TOKEN:
         return None
     try:
-        payload = f"crypto_{plan_name.lower()}_{uid}"
-        data = {
-            "asset": "USDT",
-            "amount": str(amount_usd),
-            "description": f"SellMate AI — {plan_name}",
-            "payload": payload,
-            "expires_in": 3600
-        }
+        data = json_module.dumps({
+            "asset": "USDT", "amount": str(amount_usd),
+            "description": "SellMate AI — " + plan_name,
+            "payload": payload, "expires_in": 3600
+        }).encode()
         req = urllib.request.Request(
-            "https://pay.crypt.bot/api/createInvoice",
-            data=json_module.dumps(data).encode(),
+            "https://pay.crypt.bot/api/createInvoice", data=data,
             headers={"Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN, "Content-Type": "application/json"}
         )
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:
             result = json_module.loads(resp.read())
             if result.get("ok"):
                 return result["result"]
-    except Exception as e:
-        print("CryptoBot Error:", e)
+    except Exception:
+        pass
     return None
 
-def activate_plan(uid, plan, days=30):
+def activate_plan(uid, plan, days):
     expiry = datetime.now() + timedelta(days=days)
     pro_users[uid] = expiry
     user_plan[uid] = plan
@@ -454,7 +449,313 @@ try:
 except Exception:
     pass
 
-# (все @bot.message_handler и callback от start до settings_value_callback остаются без изменений)
+@bot.message_handler(commands=['start'])
+def start(message):
+    uid = message.from_user.id
+    user_history[uid] = []
+    all_users.add(uid)
+
+    parts = message.text.split()
+    if len(parts) > 1 and parts[1].startswith("ref_") and uid not in referred_by:
+        try:
+            referrer_id = int(parts[1].replace("ref_", ""))
+            if referrer_id != uid:
+                referred_by[uid] = referrer_id
+                user_free_left[referrer_id] = user_free_left.get(referrer_id, FREE_LIMIT) + REFERRAL_BONUS
+                try:
+                    bot.send_message(referrer_id, "🎉 Someone joined through your link! You earned +" + str(REFERRAL_BONUS) + " free requests.")
+                except Exception:
+                    pass
+        except ValueError:
+            pass
+
+    if uid == OWNER_ID:
+        bot.reply_to(message, "👋 Creator mode — unlimited access.\n\n/activate /deactivate /stats available.")
+        return
+
+    if uid not in user_free_left:
+        user_free_left[uid] = FREE_LIMIT
+
+    bot.reply_to(message, WELCOME_TEXT)
+    bot.send_message(message.chat.id, MENU_MAIN_TEXT, reply_markup=build_main_menu_markup())
+
+@bot.message_handler(commands=['menu'])
+def menu_command(message):
+    bot.reply_to(message, MENU_MAIN_TEXT, reply_markup=build_main_menu_markup())
+
+@bot.message_handler(commands=['new'])
+def new_topic(message):
+    uid = message.from_user.id
+    user_history[uid] = []
+    bot.reply_to(message, "🔄 Fresh start! Context cleared.\n\nSend your product name and details — or a photo.")
+
+@bot.message_handler(commands=['balance'])
+def balance_command(message):
+    uid = message.from_user.id
+    if uid == OWNER_ID:
+        bot.reply_to(message, "💎 Creator account — unlimited access.")
+        return
+    plan = get_plan(uid)
+    expiry = pro_users.get(uid)
+    if expiry and expiry > datetime.now():
+        if plan == "starter":
+            s = get_settings(uid)
+            used = s.get("monthly_used", 0)
+            left = max(0, 50 - used)
+            bot.reply_to(message, "🥉 Starter Plan\nRequests left this month: " + str(left) + "/50\nExpires: " + expiry.strftime("%m/%d/%Y") + "\n\nUpgrade to Pro for unlimited → /subscription")
+        elif plan == "pro":
+            bot.reply_to(message, "🥈 Pro Plan — Unlimited requests\nExpires: " + expiry.strftime("%m/%d/%Y"))
+        elif plan == "business":
+            bot.reply_to(message, "🥇 Business Plan — Unlimited requests + all features\nExpires: " + expiry.strftime("%m/%d/%Y"))
+    else:
+        left = get_free_left(uid)
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("💎 View Plans", callback_data="menu_subscription"))
+        bot.reply_to(message, "🎁 Free Plan\nRequests remaining: " + str(left) + "/" + str(FREE_LIMIT) + "\n\nUpgrade for unlimited access:", reply_markup=markup)
+
+@bot.message_handler(commands=['support'])
+def support_command(message):
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("✉️ Contact Support", url="https://t.me/" + OWNER_USERNAME))
+    bot.reply_to(message, "🛠️ Support\n\nHave a question or found a bug? Tap below — we reply fast.", reply_markup=markup)
+
+@bot.message_handler(commands=['referral'])
+def referral_command(message):
+    uid = message.from_user.id
+    link = "https://t.me/" + BOT_USERNAME + "?start=ref_" + str(uid)
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("📤 Share your link", switch_inline_query=link))
+    bot.reply_to(message,
+        "🎁 Invite & Earn\n\n"
+        "Share your referral link and earn free requests for every person who joins.\n\n"
+        "You get: +" + str(REFERRAL_BONUS) + " free requests per referral\n"
+        "They get: 3 free requests to start\n\n"
+        "Your link:\n" + link, reply_markup=markup)
+
+@bot.message_handler(commands=['history'])
+def history_command(message):
+    uid = message.from_user.id
+    items = user_text_history.get(uid, [])
+    if not items:
+        bot.reply_to(message, "No saved listings yet. Create your first one!")
+        return
+    markup = InlineKeyboardMarkup(row_width=1)
+    for i, item in enumerate(items):
+        preview = item.replace("\n", " ")[:50]
+        markup.add(InlineKeyboardButton(str(i + 1) + ") " + preview + "...", callback_data="hist_" + str(i)))
+    bot.reply_to(message, "📜 Your recent listings — tap to reload and continue editing:", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("hist_"))
+def history_callback(call):
+    uid = call.from_user.id
+    idx = int(call.data.replace("hist_", ""))
+    items = user_text_history.get(uid, [])
+    if idx >= len(items):
+        bot.answer_callback_query(call.id, "Not found")
+        return
+    selected = items[idx]
+    settings_ = get_settings(uid)
+    user_history[uid] = [
+        {"role": "system", "content": build_system_prompt(settings_)},
+        {"role": "assistant", "content": selected}
+    ]
+    bot.answer_callback_query(call.id, "Loaded!")
+    bot.send_message(call.message.chat.id, "✅ Listing loaded. Ask me to edit it:\n\n" + selected)
+
+@bot.message_handler(commands=['settings'])
+def settings_command(message):
+    bot.reply_to(message, SETTINGS_MAIN_TEXT, reply_markup=build_settings_main_markup())
+
+@bot.message_handler(commands=['subscription'])
+def subscription_command(message):
+    bot.reply_to(message, get_sub_text(), reply_markup=build_sub_markup())
+
+@bot.message_handler(commands=['myid'])
+def myid_command(message):
+    bot.reply_to(message, "Your Telegram ID: " + str(message.from_user.id))
+
+@bot.message_handler(commands=['stats'])
+def stats_command(message):
+    if message.from_user.id != OWNER_ID:
+        return
+    active = sum(1 for uid, exp in pro_users.items() if exp > datetime.now())
+    plans = {}
+    for uid, plan in user_plan.items():
+        plans[plan] = plans.get(plan, 0) + 1
+    bot.reply_to(message,
+        "📊 SellMate AI Stats\n\n"
+        "Total users: " + str(len(all_users)) + "\n"
+        "Active subscriptions: " + str(active) + "\n"
+        "Plan breakdown: " + str(plans) + "\n"
+        "Referred users: " + str(len(referred_by)))
+
+@bot.message_handler(commands=['activate'])
+def activate_command(message):
+    if message.from_user.id != OWNER_ID:
+        return
+    try:
+        parts = message.text.split()
+        target_id = int(parts[1])
+        plan = parts[2] if len(parts) > 2 else "pro"
+        days = int(parts[3]) if len(parts) > 3 else 30
+        expiry = activate_plan(target_id, plan, days)
+        expiry_str = expiry.strftime("%m/%d/%Y")
+        bot.reply_to(message, "Done. User " + str(target_id) + " — " + plan + " until " + expiry_str)
+        try:
+            plan_labels = {"starter": "🥉 Starter", "pro": "🥈 Pro", "business": "🥇 Business"}
+            bot.send_message(target_id, "✅ Your " + plan_labels.get(plan, plan) + " plan is active until " + expiry_str + ". Welcome to SellMate AI! 🚀")
+        except Exception:
+            pass
+    except (IndexError, ValueError):
+        bot.reply_to(message, "Use: /activate 123456789 pro 30")
+
+@bot.message_handler(commands=['deactivate'])
+def deactivate_command(message):
+    if message.from_user.id != OWNER_ID:
+        return
+    try:
+        target_id = int(message.text.split()[1])
+        pro_users.pop(target_id, None)
+        user_plan.pop(target_id, None)
+        bot.reply_to(message, "Subscription revoked for " + str(target_id))
+        try:
+            bot.send_message(target_id, "Your SellMate AI subscription has been deactivated.")
+        except Exception:
+            pass
+    except (IndexError, ValueError):
+        bot.reply_to(message, "Use: /deactivate 123456789")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("menu_"))
+def main_menu_callback(call):
+    uid = call.from_user.id
+    action = call.data.replace("menu_", "")
+    bot.answer_callback_query(call.id)
+    if action == "main":
+        safe_edit(call, MENU_MAIN_TEXT, build_main_menu_markup())
+    elif action == "about":
+        safe_edit(call,
+            "🚀 About SellMate AI\n\n"
+            "SellMate AI is the most powerful AI selling assistant built for marketplace sellers worldwide.\n\n"
+            "Whether you sell on Etsy, Amazon, eBay, Shopify or any other platform — "
+            "SellMate writes listings that rank higher, convert better and save you hours every week.\n\n"
+            "Supported platforms:\n"
+            "🟠 Etsy   📦 Amazon   🟡 eBay\n"
+            "🟢 Shopify   🔵 Facebook Marketplace\n"
+            "🟣 Depop   🩷 Poshmark   🔷 Vinted\n\n"
+            "Built by sellers, for sellers.",
+            build_back_main())
+    elif action == "support":
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("✉️ Contact Support", url="https://t.me/" + OWNER_USERNAME))
+        markup.add(InlineKeyboardButton("⬅️ Back", callback_data="menu_main"))
+        safe_edit(call, "🛠️ Support\n\nSomething wrong or have an idea?\nWe reply fast — tap below.", markup)
+    elif action == "subscription":
+        safe_edit(call, get_sub_text(), build_sub_markup())
+    elif action == "settings":
+        safe_edit(call, SETTINGS_MAIN_TEXT, build_settings_main_markup())
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("quick_"))
+def quick_action_callback(call):
+    uid = call.from_user.id
+    action = call.data.replace("quick_", "")
+    bot.answer_callback_query(call.id)
+
+    prompts = {
+        "listing": "Great! Send me your product name and details (material, size, color, condition, platform if specific) and I'll write a full listing for you.",
+        "keywords": "Send me your product name and platform, and I'll research the best keywords and tags to maximize your visibility.",
+        "photo": "Send me a photo of your product and I'll identify it and write a complete listing automatically.",
+        "adcopy": "Send me your product details and which platform you want to advertise on (Instagram, TikTok, Pinterest, Facebook Ads) — I'll write scroll-stopping ad copy.",
+        "pricing": "Send me your product details (what it is, materials, condition, competition) and I'll suggest a competitive pricing strategy with reasoning.",
+        "translate": "Send me the listing you want to translate and tell me the target language — I'll translate it while keeping SEO optimization."
+    }
+
+    labels = {
+        "listing": "✍️ Write Listing",
+        "keywords": "🔍 Keyword Research",
+        "photo": "📷 Photo Analysis",
+        "adcopy": "📣 Ad Copy",
+        "pricing": "💰 Pricing Strategy",
+        "translate": "🌍 Translate Listing"
+    }
+
+    if action in prompts:
+        history = get_user_state(uid)
+        s = get_settings(uid)
+        if len(history) == 0:
+            history.append({"role": "system", "content": build_system_prompt(s)})
+        history.append({"role": "assistant", "content": prompts[action]})
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("⬅️ Back to Menu", callback_data="menu_main"))
+        bot.send_message(call.message.chat.id, "💬 " + labels.get(action, "") + "\n\n" + prompts[action], reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("set_open_") or call.data == "set_reset")
+def settings_open_callback(call):
+    uid = call.from_user.id
+    s = get_settings(uid)
+    bot.answer_callback_query(call.id)
+    if call.data == "set_reset":
+        user_settings[uid] = {"model": "smart", "platform": "auto", "tone": "auto", "length": "auto", "language": "en"}
+        safe_edit(call, SETTINGS_MAIN_TEXT, build_settings_main_markup())
+        return
+    section = call.data.replace("set_open_", "")
+    if section == "platform":
+        safe_edit(call, "🛍️ Choose your default platform:", build_platform_markup(s))
+    elif section == "model":
+        safe_edit(call, "🤖 Choose AI model:", build_model_markup(s))
+    elif section == "tone":
+        safe_edit(call, "🎨 Choose writing tone:", build_tone_markup(s))
+    elif section == "length":
+        safe_edit(call, "📄 Choose listing length:", build_length_markup(s))
+    elif section == "language":
+        safe_edit(call, "🌍 Choose response language:", build_language_markup(s))
+
+@bot.callback_query_handler(func=lambda call: any(call.data.startswith(p) for p in ["set_platform_", "set_model_", "set_tone_", "set_length_", "set_language_"]))
+def settings_value_callback(call):
+    uid = call.from_user.id
+    s = get_settings(uid)
+    data = call.data
+    bot.answer_callback_query(call.id, "✅ Updated")
+    if data.startswith("set_platform_"):
+        s["platform"] = data.replace("set_platform_", "")
+        safe_edit(call, "🛍️ Choose your default platform:", build_platform_markup(s))
+    elif data.startswith("set_model_"):
+        s["model"] = data.replace("set_model_", "")
+        safe_edit(call, "🤖 Choose AI model:", build_model_markup(s))
+    elif data.startswith("set_tone_"):
+        s["tone"] = data.replace("set_tone_", "")
+        safe_edit(call, "🎨 Choose writing tone:", build_tone_markup(s))
+    elif data.startswith("set_length_"):
+        s["length"] = data.replace("set_length_", "")
+        safe_edit(call, "📄 Choose listing length:", build_length_markup(s))
+    elif data.startswith("set_language_"):
+        new_lang = data.replace("set_language_", "")
+        s["language"] = new_lang
+        user_history[uid] = []
+        lang_names = {
+            "en": "English", "es": "Spanish", "de": "German", "fr": "French",
+            "it": "Italian", "pt": "Portuguese", "ru": "Russian",
+            "ja": "Japanese", "zh": "Chinese", "ar": "Arabic"
+        }
+        bot.answer_callback_query(call.id, "Language set to " + lang_names.get(new_lang, new_lang))
+        safe_edit(call, "🌍 Language changed to " + lang_names.get(new_lang, new_lang) + "!\n\nI'll now respond in this language. Start a new request anytime.", build_language_markup(s))
+
+@bot.callback_query_handler(func=lambda call: call.data in ["pay_starter", "pay_pro", "pay_business"])
+def stars_payment_callback(call):
+    bot.answer_callback_query(call.id)
+    plans = {
+        "pay_starter": (STARS_STARTER, "Starter", "sub_starter", 30),
+        "pay_pro": (STARS_PRO, "Pro", "sub_pro", 30),
+        "pay_business": (STARS_BUSINESS, "Business", "sub_business", 30)
+    }
+    stars, name, payload, days = plans[call.data]
+    prices = [LabeledPrice(label="SellMate AI — " + name, amount=stars)]
+    bot.send_invoice(call.message.chat.id,
+        title="SellMate AI " + name,
+        description="Unlock " + name + " features for 30 days",
+        invoice_payload=payload,
+        provider_token="",
+        currency="XTR",
+        prices=prices)
 
 @bot.callback_query_handler(func=lambda call: call.data == "pay_usdt")
 def usdt_menu_callback(call):
@@ -466,20 +767,22 @@ def usdt_plan_callback(call):
     uid = call.from_user.id
     bot.answer_callback_query(call.id)
     plans = {
-        "pay_usdt_starter": (2.99, "Starter"),
-        "pay_usdt_pro": (6.99, "Pro"),
-        "pay_usdt_business": (16.99, "Business")
+        "pay_usdt_starter": (2.99, "Starter", "crypto_starter", 30),
+        "pay_usdt_pro": (6.99, "Pro", "crypto_pro", 30),
+        "pay_usdt_business": (16.99, "Business", "crypto_business", 30)
     }
-    if call.data not in plans:
+    plan = plans.get(call.data)
+    if not plan:
         return
-    amount, name = plans[call.data]
-    invoice = create_crypto_invoice(amount, name, uid)
-    if invoice and invoice.get("pay_url"):
+    amount, name, payload, days = plan
+    invoice = create_crypto_invoice(amount, name, payload + "_" + str(uid) + "_" + str(days))
+    if invoice:
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton(f"💰 Pay ${amount} USDT", url=invoice["pay_url"]))
+        markup.add(InlineKeyboardButton("💰 Pay $" + str(amount) + " USDT", url=invoice["pay_url"]))
         markup.add(InlineKeyboardButton("⬅️ Back", callback_data="pay_usdt"))
         bot.send_message(call.message.chat.id,
-            f"💰 {name} — ${amount} USDT\n\nTap to pay. Activates automatically after payment.",
+            "💰 " + name + " — $" + str(amount) + " USDT\n\n"
+            "Tap to pay. Activates automatically after payment.",
             reply_markup=markup)
     else:
         markup = InlineKeyboardMarkup()
@@ -496,12 +799,14 @@ def checkout(query):
 def got_payment(message):
     uid = message.from_user.id
     payload = message.successful_payment.invoice_payload
-    plan_name = "pro"
-    if "starter" in payload.lower():
-        plan_name = "starter"
-    elif "business" in payload.lower():
-        plan_name = "business"
-    expiry = activate_plan(uid, plan_name)
+    plan_map = {
+        "sub_starter": ("starter", 30),
+        "sub_pro": ("pro", 30),
+        "sub_business": ("business", 30)
+    }
+    plan_info = plan_map.get(payload, ("pro", 30))
+    plan_name, days = plan_info
+    expiry = activate_plan(uid, plan_name, days)
     labels = {"starter": "🥉 Starter", "pro": "🥈 Pro", "business": "🥇 Business"}
     bot.reply_to(message,
         "✅ Payment confirmed!\n\n"
@@ -575,11 +880,14 @@ def generate(message):
     all_users.add(uid)
     history = get_user_state(uid)
     settings_ = get_settings(uid)
+
     if not has_requests(uid):
         send_limit_message(message.chat.id)
         return
+
     last = user_last_request.get(uid, "")
     is_duplicate = (message.text.strip().lower() == last.strip().lower()) and last != ""
+
     if is_duplicate:
         bot.reply_to(message,
             "♻️ This is the same request as before — I won't charge a credit for it.\n\n"
@@ -588,12 +896,16 @@ def generate(message):
         if items:
             bot.send_message(message.chat.id, items[-1] + get_footer(uid))
         return
+
     bot.send_chat_action(message.chat.id, 'typing')
+
     if len(history) == 0:
         history.append({"role": "system", "content": build_system_prompt(settings_)})
+
     history.append({"role": "user", "content": message.text})
     trimmed = [history[0]] + history[-11:] if len(history) > 12 else history
     model_name = MODELS.get(settings_.get("model", "smart"), MODELS["smart"])
+
     try:
         response = client.chat.completions.create(model=model_name, messages=trimmed, max_tokens=800, temperature=0.8)
         text = clean_text(response.choices[0].message.content)
