@@ -180,9 +180,11 @@ def create_crypto_invoice(user_id: int, plan: str):
     amount, label, days = prices[plan]
     payload = f"crypto_{plan}_{user_id}_{days}"
     
-    print(f"🔄 Creating invoice → User: {user_id} | Plan: {plan} | ${amount}")
+    print(f"🔄 Trying to create invoice for {plan} (${amount})...")
     
     invoice = create_invoice(amount, label, payload)
+    
+    print(f"API Response: {invoice}")
     
     if invoice and isinstance(invoice, dict):
         print(f"✅ Invoice created! ID: {invoice.get('invoice_id')}")
