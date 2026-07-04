@@ -168,33 +168,31 @@ def create_invoice(amount, label, payload):
     })
 
 def create_crypto_invoice(user_id: int, plan: str):
-    """Создание invoice"""
     prices = {
         "starter":  (2.99,  "Starter",  30),
         "pro":      (6.99,  "Pro",      30),
         "business": (16.99, "Business", 30),
     }
     if plan not in prices:
-        print("❌ Unknown plan")
         return None
+    
     amount, label, days = prices[plan]
     payload = f"crypto_{plan}_{user_id}_{days}"
     
-    print(f"🔄 Trying to create invoice for {plan} (${amount})...")
+    print(f"🔄 Direct create for {plan}...")
+
+    try:
+        invoice = create_invoice(amount, label, payload)
+        if invoice:
+            print(f"✅ Success! URL: {invoice.get('bot_invoice_url')}")
+            inv_id = str(invoice.get("invoice_id"))
+            if inv_id:
+                pending_crypto[inv_id] = {"uid": user_id, "plan": plan, "days": days}
+            return invoice
+    except Exception as e:
+        print(f"❌ Exception: {e}")
     
-    invoice = create_invoice(amount, label, payload)
-    
-    print(f"API Response: {invoice}")
-    
-    if invoice and isinstance(invoice, dict):
-        print(f"✅ Invoice created! ID: {invoice.get('invoice_id')}")
-        inv_id = str(invoice.get("invoice_id"))
-        if inv_id:
-            pending_crypto[inv_id] = {"uid": user_id, "plan": plan, "days": days}
-        return invoice
-    else:
-        print("❌ Failed to create invoice from API")
-        return None
+    return None
 
 # ─────────────────────────────────────────────
 # POLLING
