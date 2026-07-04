@@ -13,7 +13,6 @@ WEBHOOK_URL  = os.environ.get("WEBHOOK_URL", "")   # e.g. https://your-app.up.ra
 
 # 1. Start Flask webhook server
 import webhook
-seller_bot.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
 webhook.start(port=PORT)
 time.sleep(1)  # Let Flask bind the port
 
