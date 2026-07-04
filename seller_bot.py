@@ -11,6 +11,11 @@ from groq import Groq
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN")
 GROQ_API_KEY     = os.environ.get("GROQ_API_KEY")
 CRYPTO_BOT_TOKEN = os.environ.get("CRYPTO_BOT_TOKEN", "")
+print("=== DEBUG TOKEN ===")
+print("Token exists:", bool(CRYPTO_BOT_TOKEN))
+print("Token length:", len(CRYPTO_BOT_TOKEN))
+print("First 20 chars:", CRYPTO_BOT_TOKEN[:20] if CRYPTO_BOT_TOKEN else "EMPTY")
+print("===================")
 BOT_USERNAME     = os.environ.get("BOT_USERNAME", "sellmate_ai_bot")
 
 # DEBUG TOKEN
