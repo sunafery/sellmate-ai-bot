@@ -30,4 +30,4 @@ else:
 
 # 3. Start Telegram bot (blocking)
 logger.info("Starting Telegram bot...")
-import seller_bot   # this calls bot.polling() at module end
+#import seller_bot   # this calls bot.polling() at module end
