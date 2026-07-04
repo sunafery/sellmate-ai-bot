@@ -31,7 +31,3 @@ else:
 # 3. Start Telegram bot (blocking)
 logger.info("Starting Telegram bot...")
 import seller_bot   # this calls bot.polling() at module end
-seller_bot.bot.set_webhook(url=f"{WEBHOOK_URL}/webhook")
-
-while True:
-    time.sleep(1)
