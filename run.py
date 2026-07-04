@@ -5,6 +5,10 @@ then runs the Telegram bot.
 import os
 import time
 import logging
+
+bot.delete_webhook()
+print("Webhook forcibly deleted")
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(message)s")
 logger = logging.getLogger(__name__)
 
