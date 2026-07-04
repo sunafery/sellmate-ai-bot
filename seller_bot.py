@@ -1033,4 +1033,4 @@ def generate(message):
             bot.reply_to(message,"Something went wrong. Please try again.")
 
 print("SellMate AI is running...")
-# bot.polling(none_stop=True)
+bot.polling(none_stop=True)
