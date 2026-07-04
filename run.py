@@ -13,7 +13,7 @@ WEBHOOK_URL  = os.environ.get("WEBHOOK_URL", "")   # e.g. https://your-app.up.ra
 
 # 1. Start Flask webhook server
 import webhook
-webhook.start(port=PORT)
+# webhook.start(port=PORT)
 time.sleep(1)   # let Flask bind the port
 
 # 2. Register CryptoBot webhook URL
@@ -30,4 +30,7 @@ else:
 
 # 3. Start Telegram bot (blocking)
 logger.info("Starting Telegram bot...")
-import seller_bot   # this calls bot.polling() at module end
+import seller_bot  # this calls bot.polling() at module end
+
+bot.delete_webhook()
+print("Webhook deleted")
