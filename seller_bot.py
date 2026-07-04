@@ -585,11 +585,11 @@ def cmd_deactivate(message):
 def get_sub_text():
     return (
         "💎  SellMate AI Plans\n\n"
-        "🥉  Starter · 200 ⭐/mo (~$2.99)\n"
+        "🥉  Starter · 200 ⭐ (~$2.99)\n"
         "50 requests · All platforms\n\n"
-        "🥈  Pro · 500 ⭐/mo (~$6.99)\n"
+        "🥈  Pro · 500 ⭐ (~$6.99)\n"
         "Unlimited · Keywords · Ad copy · Photo scan\n\n"
-        "🥇  Business · 1200 ⭐/mo (~$16.99)\n"
+        "🥇  Business · 1200 ⭐ (~$16.99)\n"
         "Everything in Pro + bulk generation + competitor analysis + priority support\n\n"
         "Pay with Telegram Stars (instant) or USDT crypto (auto-activates)."
     )
@@ -600,9 +600,9 @@ def get_sub_text():
 def send_limit_msg(chat_id):
     m = InlineKeyboardMarkup(row_width=1)
     m.add(
-        InlineKeyboardButton("🥇 Business — 1200 ⭐/mo", callback_data="pay_business"),
-        InlineKeyboardButton("🥈 Pro — 500 ⭐/mo",       callback_data="pay_pro"),
-        InlineKeyboardButton("🥉 Starter — 200 ⭐/mo",   callback_data="pay_starter"),
+        InlineKeyboardButton("🥇 Business — 1200 ⭐", callback_data="pay_business"),
+        InlineKeyboardButton("🥈 Pro — 500 ⭐",       callback_data="pay_pro"),
+        InlineKeyboardButton("🥉 Starter — 200 ⭐",   callback_data="pay_starter"),
         InlineKeyboardButton("🎁 Invite friends · earn requests", callback_data="ref_hint")
     )
     bot.send_message(chat_id,
