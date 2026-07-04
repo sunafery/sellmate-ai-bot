@@ -176,21 +176,21 @@ threading.Thread(target=poll_crypto, daemon=True).start()
 # ─────────────────────────────────────────────
 # AI GENERATION WITH PROGRESS
 # ─────────────────────────────────────────────
-LISTING_STAGES = [
-    "🧠  Understanding product...",
-    "🧠  Understanding product   ✔\n🔍  Detecting category...",
-    "🧠  Understanding product   ✔\n🔍  Detecting category       ✔\n🔑  Finding SEO keywords...",
-    "🧠  Understanding product   ✔\n🔍  Detecting category       ✔\n🔑  Finding SEO keywords     ✔\n📊  Researching competitors...",
-    "🧠  Understanding product   ✔\n🔍  Detecting category       ✔\n🔑  Finding SEO keywords     ✔\n📊  Researching competitors  ✔\n✍️   Building listing...",
-    "🧠  Understanding product   ✔\n🔍  Detecting category       ✔\n🔑  Finding SEO keywords     ✔\n📊  Researching competitors  ✔\n✍️   Building listing         ✔\n⚡  Optimizing title...",
-    "🧠  Understanding product   ✔\n🔍  Detecting category       ✔\n🔑  Finding SEO keywords     ✔\n📊  Researching competitors  ✔\n✍️   Building listing         ✔\n⚡  Optimizing title          ✔\n✨  Final quality check...",
-]
+def make_progress_bar(pct):
+    filled = int(pct / 10)
+    empty  = 10 - filled
+    bar    = "█" * filled + "░" * empty
+    return "⚡ SellMate AI is working...\n\n[" + bar + "]  " + str(pct) + "%"
+
+PROGRESS_STEPS = [0, 10, 25, 40, 55, 70, 82, 91, 97, 100]
 
 def run_progress(chat_id, progress_msg_id):
-    for i, stage in enumerate(LISTING_STAGES):
-        time.sleep(0.7)
-        try: bot.edit_message_text(stage, chat_id, progress_msg_id)
-        except Exception: pass
+    for pct in PROGRESS_STEPS[1:]:
+        time.sleep(0.6)
+        try:
+            bot.edit_message_text(make_progress_bar(pct), chat_id, progress_msg_id)
+        except Exception:
+            pass
 
 def build_system_prompt(s):
     platform = s.get("platform","auto")
@@ -198,8 +198,18 @@ def build_system_prompt(s):
     length   = s.get("length","auto")
     lang     = s.get("language","en")
 
-    lang_map = {"en":"English","es":"Spanish","de":"German","fr":"French",
-                "it":"Italian","pt":"Portuguese","ru":"Russian","ja":"Japanese","zh":"Chinese","ar":"Arabic"}
+    lang_map = {
+        "en": "English",
+        "es": "Spanish (Español) — write everything in Spanish",
+        "de": "German (Deutsch) — write everything in German",
+        "fr": "French (Français) — write everything in French",
+        "it": "Italian (Italiano) — write everything in Italian",
+        "pt": "Portuguese (Português) — write everything in Portuguese",
+        "ru": "Russian (Русский) — write everything in Russian",
+        "ja": "Japanese — write everything in Japanese using appropriate script",
+        "zh": "Chinese Simplified — write everything in Simplified Chinese",
+        "ar": "Arabic — write everything in Arabic"
+    }
     lang_full = lang_map.get(lang, "English")
 
     platform_map = {
@@ -229,10 +239,14 @@ def build_system_prompt(s):
         "Platform: " + platform_map.get(platform, platform_map["auto"]) + "\n"
         + (tone_map.get(tone,"") + " " if tone in tone_map else "")
         + (length_map.get(length,"") + " " if length in length_map else "")
-        + "\nCRITICAL: Respond entirely in " + lang_full + ". Every word must be in " + lang_full + ".\n\n"
-        "When asked to write a listing, return ONLY a JSON object:\n"
+        + "\n\nMANDATORY LANGUAGE RULE: " + lang_full + ". "
+        "You MUST write your ENTIRE response in this language only. "
+        "Every word, every label, every sentence must be in this language. "
+        "Do NOT use English unless the language IS English. No exceptions.\n\n"
+        "When asked to write a listing, return ONLY a JSON object (no extra text before or after):\n"
         '{"title":"...","description":"...","tags":"tag1, tag2, ...","keywords":"kw1, kw2, ...","photo_tips":"...","selling_tips":"..."}\n\n'
-        "For all other requests (improve, translate, keywords only, etc.) respond naturally in plain text.\n\n"
+        "All values inside the JSON must also be in the specified language.\n\n"
+        "For all other requests respond naturally in plain text in the specified language.\n\n"
         "Rules:\n"
         "- Trust user-stated brand/model completely\n"
         "- No invented facts\n"
@@ -243,30 +257,39 @@ def build_system_prompt(s):
 
 def parse_listing(raw):
     try:
-        raw_clean = raw.strip()
-        if raw_clean.startswith("```"):
-            raw_clean = re.sub(r"```[a-z]*\n?", "", raw_clean).strip().rstrip("`").strip()
-        return json_module.loads(raw_clean)
+        clean_raw = raw.strip()
+        clean_raw = re.sub(r"^```[a-z]*\n?", "", clean_raw)
+        clean_raw = re.sub(r"\n?```$", "", clean_raw).strip()
+        match = re.search(r'\{[\s\S]*\}', clean_raw)
+        if match:
+            return json_module.loads(match.group())
     except Exception:
-        return None
+        pass
+    return None
 
 def format_listing(d, uid):
-    sep = "━━━━━━━━━━━━━━━━━━━━━━"
-    parts = []
-    if d.get("title"):
-        parts.append(sep + "\n📝  SEO Title\n" + sep + "\n" + d["title"].strip())
-    if d.get("description"):
-        parts.append(sep + "\n📄  Description\n" + sep + "\n" + d["description"].strip())
-    if d.get("tags"):
-        parts.append(sep + "\n🏷  Tags\n" + sep + "\n" + d["tags"].strip())
-    if d.get("keywords"):
-        parts.append(sep + "\n🔑  Keywords\n" + sep + "\n" + d["keywords"].strip())
-    if d.get("photo_tips"):
-        parts.append(sep + "\n📸  Photo Tips\n" + sep + "\n" + d["photo_tips"].strip())
-    if d.get("selling_tips"):
-        parts.append(sep + "\n📈  Selling Tips\n" + sep + "\n" + d["selling_tips"].strip())
-    parts.append(sep)
-    return "\n\n".join(parts) + get_footer(uid)
+    sep   = "━━━━━━━━━━━━━━━━━━━━━━"
+    lines = []
+
+    def block(icon, label, content):
+        if content and content.strip():
+            lines.append(sep)
+            lines.append(icon + "  " + label)
+            lines.append(sep)
+            lines.append(content.strip())
+            lines.append("")
+
+    block("📝", "SEO Title",    d.get("title",""))
+    block("📄", "Description",  d.get("description",""))
+    block("🏷", "Tags",         d.get("tags",""))
+    block("🔑", "Keywords",     d.get("keywords",""))
+    block("📸", "Photo Tips",   d.get("photo_tips",""))
+    block("📈", "Selling Tips", d.get("selling_tips",""))
+
+    if lines:
+        lines.append(sep)
+
+    return "\n".join(lines) + get_footer(uid)
 
 def post_action_markup():
     markup = InlineKeyboardMarkup(row_width=2)
@@ -879,7 +902,7 @@ def got_payment(message):
 # CORE GENERATION
 # ─────────────────────────────────────────────
 def _generate_with_progress(uid, chat_id, history, s):
-    progress_msg = bot.send_message(chat_id, LISTING_STAGES[0])
+    progress_msg = bot.send_message(chat_id, make_progress_bar(0))
 
     def run_stages():
         for stage in LISTING_STAGES[1:]:
