@@ -124,54 +124,33 @@ def safe_edit(call_or_cid, text, markup, mid=None):
         bot.send_message(cid, text, reply_markup=markup)
 
 # ─────────────────────────────────────────────
-# CRYPTO BOT
+# CRYPTO PAY (module)
 # ─────────────────────────────────────────────
-def crypto_request(method, params=None):
-    if not CRYPTO_BOT_TOKEN: return None
-    try:
-        data = json_module.dumps(params or {}).encode()
-        req  = urllib.request.Request(
-            "https://pay.crypt.bot/api/" + method, data=data,
-            headers={"Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN, "Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            result = json_module.loads(r.read())
-            return result.get("result") if result.get("ok") else None
-    except Exception:
-        return None
+try:
+    import crypto_pay
+    import webhook as _webhook
 
-def create_invoice(amount, label, payload):
-    return crypto_request("createInvoice", {
-        "asset": "USDT", "amount": str(amount),
-        "description": "SellMate AI — " + label,
-        "payload": payload, "expires_in": 3600
-    })
-
-def poll_crypto():
-    while True:
-        time.sleep(6)
-        if not pending_crypto or not CRYPTO_BOT_TOKEN: continue
+    def _on_crypto_payment(payment: dict):
+        """Called by webhook.py when CryptoBot confirms payment."""
+        uid      = payment["user_id"]
+        plan_key = payment["plan_key"]
+        days     = payment["days"]
+        expiry   = activate_plan(uid, plan_key, days)
+        labels   = {"starter": "🥉 Starter", "pro": "🥈 Pro", "business": "🥇 Business"}
         try:
-            ids  = list(pending_crypto.keys())[:100]
-            data = crypto_request("getInvoices", {"invoice_ids": ids})
-            if not data: continue
-            items = data.get("items", []) if isinstance(data, dict) else []
-            for inv in items:
-                iid    = str(inv.get("invoice_id",""))
-                status = inv.get("status","")
-                if status == "paid" and iid in pending_crypto:
-                    info   = pending_crypto.pop(iid)
-                    expiry = activate_plan(info["uid"], info["plan"], info["days"])
-                    labels = {"starter":"🥉 Starter","pro":"🥈 Pro","business":"🥇 Business"}
-                    try:
-                        bot.send_message(info["uid"],
-                            "✅ Payment confirmed!\n\n"
-                            + labels.get(info["plan"],"") + " plan activated.\n"
-                            "Valid until: " + expiry.strftime("%b %d, %Y") + "\n\n"
-                            "Let's build your next bestseller 🚀")
-                    except Exception: pass
-        except Exception: pass
+            bot.send_message(uid,
+                "✅  Payment confirmed!\n\n"
+                + labels.get(plan_key, plan_key) + " plan is now active.\n"
+                "Valid until: " + expiry.strftime("%b %d, %Y") + "\n\n"
+                "Let's build your next bestseller 🚀",
+                reply_markup=build_main_menu())
+        except Exception as e:
+            logger.error(f"Could not notify user {uid}: {e}")
 
-threading.Thread(target=poll_crypto, daemon=True).start()
+    _webhook.register_payment_callback(_on_crypto_payment)
+    CRYPTO_READY = True
+except ImportError:
+    CRYPTO_READY = False
 
 # ─────────────────────────────────────────────
 # AI GENERATION WITH PROGRESS
