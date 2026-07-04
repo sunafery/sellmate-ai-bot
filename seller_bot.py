@@ -4,6 +4,10 @@ import re, os, base64, time, threading, json as json_module
 import urllib.request, urllib.parse
 from datetime import datetime, timedelta
 from groq import Groq
+import logging
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(message)s")
+logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────
 # CONFIG
@@ -585,11 +589,11 @@ def cmd_deactivate(message):
 def get_sub_text():
     return (
         "💎  SellMate AI Plans\n\n"
-        "🥉  Starter · 200 ⭐ (~$2.99)\n"
+        "🥉  Starter · 200 ⭐/mo (~$2.99)\n"
         "50 requests · All platforms\n\n"
-        "🥈  Pro · 500 ⭐ (~$6.99)\n"
+        "🥈  Pro · 500 ⭐/mo (~$6.99)\n"
         "Unlimited · Keywords · Ad copy · Photo scan\n\n"
-        "🥇  Business · 1200 ⭐ (~$16.99)\n"
+        "🥇  Business · 1200 ⭐/mo (~$16.99)\n"
         "Everything in Pro + bulk generation + competitor analysis + priority support\n\n"
         "Pay with Telegram Stars (instant) or USDT crypto (auto-activates)."
     )
@@ -600,9 +604,9 @@ def get_sub_text():
 def send_limit_msg(chat_id):
     m = InlineKeyboardMarkup(row_width=1)
     m.add(
-        InlineKeyboardButton("🥇 Business — 1200 ⭐", callback_data="pay_business"),
-        InlineKeyboardButton("🥈 Pro — 500 ⭐",       callback_data="pay_pro"),
-        InlineKeyboardButton("🥉 Starter — 200 ⭐",   callback_data="pay_starter"),
+        InlineKeyboardButton("🥇 Business — 1200 ⭐/mo", callback_data="pay_business"),
+        InlineKeyboardButton("🥈 Pro — 500 ⭐/mo",       callback_data="pay_pro"),
+        InlineKeyboardButton("🥉 Starter — 200 ⭐/mo",   callback_data="pay_starter"),
         InlineKeyboardButton("🎁 Invite friends · earn requests", callback_data="ref_hint")
     )
     bot.send_message(chat_id,
@@ -832,22 +836,52 @@ def cb_usdt_plan(call):
     if not plan: return
     amount, label, plan_key, days = plan
 
-    invoice = create_invoice(amount, label, "usdt_"+plan_key+"_"+str(uid)+"_"+str(days))
-    if invoice:
-        inv_id = str(invoice.get("invoice_id",""))
-        if inv_id: pending_crypto[inv_id] = {"uid":uid,"plan":plan_key,"days":days}
+    if not CRYPTO_READY or not crypto_pay.CRYPTO_BOT_TOKEN:
         m = InlineKeyboardMarkup()
-        m.add(InlineKeyboardButton("💰  Pay $"+str(amount)+" USDT", url=invoice.get("pay_url","")))
+        m.add(InlineKeyboardButton("✉️  Contact support", url="https://t.me/" + OWNER_USERNAME))
         m.add(InlineKeyboardButton("⬅️ Back", callback_data="pay_usdt"))
         bot.send_message(call.message.chat.id,
-            "💰  " + label + " — $" + str(amount) + " USDT\n\n"
-            "Tap to pay. Subscription activates automatically within seconds after payment.",
-            reply_markup=m)
+            "⚠️  Crypto payments not configured yet.\n"
+            "Contact support to pay via USDT manually.", reply_markup=m)
+        return
+
+    plan_map = {
+        "pay_usdt_starter":  "starter",
+        "pay_usdt_pro":      "pro",
+        "pay_usdt_business": "business",
+    }
+    plan_key = plan_map.get(call.data)
+    plan_info = crypto_pay.PLANS.get(plan_key, {})
+
+    status_msg = bot.send_message(call.message.chat.id, "⏳  Creating payment...")
+
+    invoice = crypto_pay.create_invoice(uid, plan_key)
+    if invoice:
+        pay_url = invoice.get("pay_url", "")
+        amount  = plan_info.get("amount", "?")
+        label   = plan_info.get("label", plan_key)
+        m = InlineKeyboardMarkup(row_width=1)
+        m.add(InlineKeyboardButton("💳  Open Crypto Payment", url=pay_url))
+        m.add(InlineKeyboardButton("⬅️ Back", callback_data="pay_usdt"))
+        try:
+            bot.edit_message_text(
+                "💰  " + label + " — $" + str(amount) + " USDT\n\n"
+                "Tap the button below to pay inside Telegram.\n"
+                "✅  Subscription activates automatically after payment.",
+                call.message.chat.id, status_msg.message_id, reply_markup=m)
+        except Exception:
+            bot.send_message(call.message.chat.id,
+                "💰  " + label + " — $" + str(amount) + " USDT\n\n"
+                "Tap to pay inside Telegram:", reply_markup=m)
     else:
         m = InlineKeyboardMarkup()
-        m.add(InlineKeyboardButton("✉️  Contact support", url="https://t.me/"+OWNER_USERNAME))
-        bot.send_message(call.message.chat.id,
-            "⚠️  Crypto payments are being configured.\nContact support to pay via USDT.", reply_markup=m)
+        m.add(InlineKeyboardButton("✉️  Contact support", url="https://t.me/" + OWNER_USERNAME))
+        try:
+            bot.edit_message_text(
+                "⚠️  Could not create payment. Please contact support.",
+                call.message.chat.id, status_msg.message_id, reply_markup=m)
+        except Exception:
+            pass
 
 @bot.callback_query_handler(func=lambda c: c.data == "ref_hint")
 def cb_ref_hint(call):
