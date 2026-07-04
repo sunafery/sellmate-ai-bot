@@ -13,13 +13,6 @@ GROQ_API_KEY     = os.environ.get("GROQ_API_KEY")
 CRYPTO_BOT_TOKEN = os.environ.get("CRYPTO_BOT_TOKEN", "")
 BOT_USERNAME     = os.environ.get("BOT_USERNAME", "sellmate_ai_bot")
 
-# DEBUG
-print("=== DEBUG TOKEN ===")
-print("Token exists:", bool(CRYPTO_BOT_TOKEN))
-print("Token length:", len(CRYPTO_BOT_TOKEN))
-print("First 30 chars:", CRYPTO_BOT_TOKEN[:30] if CRYPTO_BOT_TOKEN else "EMPTY")
-print("===================")
-
 bot    = telebot.TeleBot(TELEGRAM_TOKEN)
 client = Groq(api_key=GROQ_API_KEY)
 
@@ -131,72 +124,28 @@ def safe_edit(call_or_cid, text, markup, mid=None):
         bot.send_message(cid, text, reply_markup=markup)
 
 # ─────────────────────────────────────────────
-# CRYPTO BOT — ИСПРАВЛЕННАЯ ВЕРСИЯ
+# CRYPTO BOT
 # ─────────────────────────────────────────────
 def crypto_request(method, params=None):
-    if not CRYPTO_BOT_TOKEN: 
-        print("❌ CRYPTO_BOT_TOKEN not set")
-        return None
+    if not CRYPTO_BOT_TOKEN: return None
     try:
         data = json_module.dumps(params or {}).encode()
         req  = urllib.request.Request(
-            "https://pay.crypt.bot/api/" + method, 
-            data=data,
-            headers={
-                "Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN, 
-                "Content-Type": "application/json"
-            }
-        )
-        with urllib.request.urlopen(req, timeout=15) as r:
-            result = json_module.loads(r.read().decode('utf-8'))
-            if not result.get("ok"):
-                print(f"❌ Crypto API Error: {result.get('error')}")
-                return None
-            return result.get("result")
-    except Exception as e:
-        print(f"❌ Crypto request error: {e}")
+            "https://pay.crypt.bot/api/" + method, data=data,
+            headers={"Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN, "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            result = json_module.loads(r.read())
+            return result.get("result") if result.get("ok") else None
+    except Exception:
         return None
 
 def create_invoice(amount, label, payload):
     return crypto_request("createInvoice", {
-        "asset": "USDT", 
-        "amount": str(amount),
+        "asset": "USDT", "amount": str(amount),
         "description": "SellMate AI — " + label,
-        "payload": payload, 
-        "expires_in": 3600,
-        "allow_anonymous": False
+        "payload": payload, "expires_in": 3600
     })
 
-def create_crypto_invoice(user_id: int, plan: str):
-    prices = {
-        "starter":  (2.99,  "Starter",  30),
-        "pro":      (6.99,  "Pro",      30),
-        "business": (16.99, "Business", 30),
-    }
-    if plan not in prices:
-        return None
-    
-    amount, label, days = prices[plan]
-    payload = f"crypto_{plan}_{user_id}_{days}"
-    
-    print(f"🔄 Direct create for {plan}...")
-
-    try:
-        invoice = create_invoice(amount, label, payload)
-        if invoice:
-            print(f"✅ Success! URL: {invoice.get('bot_invoice_url')}")
-            inv_id = str(invoice.get("invoice_id"))
-            if inv_id:
-                pending_crypto[inv_id] = {"uid": user_id, "plan": plan, "days": days}
-            return invoice
-    except Exception as e:
-        print(f"❌ Exception: {e}")
-    
-    return None
-
-# ─────────────────────────────────────────────
-# POLLING
-# ─────────────────────────────────────────────
 def poll_crypto():
     while True:
         time.sleep(6)
@@ -386,7 +335,6 @@ def build_sub_markup():
         InlineKeyboardButton("🥈 Pro — 500 ⭐/mo",       callback_data="pay_pro"),
         InlineKeyboardButton("🥇 Business — 1200 ⭐/mo", callback_data="pay_business"),
         InlineKeyboardButton("💰 Pay with USDT (crypto)", callback_data="pay_usdt"),
-        InlineKeyboardButton("💳 Pay with Crypto", callback_data="pay_crypto"),
         InlineKeyboardButton("⬅️ Back", callback_data="menu_main")
     )
     return m
@@ -869,7 +817,7 @@ def cb_settings(call):
         safe_edit(call,"🌍  Language set to "+lang_names.get(new_lang,new_lang)+"!\n\nI'll now respond in this language.",build_language_markup(s))
 
 # ─────────────────────────────────────────────
-# CALLBACKS — PAYMENTS (Stars + USDT)
+# CALLBACKS — PAYMENTS (Stars)
 # ─────────────────────────────────────────────
 @bot.callback_query_handler(func=lambda c: c.data in ("pay_starter","pay_pro","pay_business"))
 def cb_stars_pay(call):
@@ -951,56 +899,13 @@ def got_payment(message):
         reply_markup=build_main_menu())
 
 # ─────────────────────────────────────────────
-# CRYPTO PAY CALLBACKS
-# ─────────────────────────────────────────────
-@bot.callback_query_handler(func=lambda c: c.data == "pay_crypto")
-def cb_crypto_pay(call):
-    bot.answer_callback_query(call.id, "Creating payment...")
-    safe_edit(call, "💳 Pay with Crypto (USDT)\n\nChoose plan:", build_crypto_markup())
-
-def build_crypto_markup():
-    m = InlineKeyboardMarkup(row_width=1)
-    m.add(
-        InlineKeyboardButton("🥉 Starter — $2.99", callback_data="crypto_starter"),
-        InlineKeyboardButton("🥈 Pro — $6.99", callback_data="crypto_pro"),
-        InlineKeyboardButton("🥇 Business — $16.99", callback_data="crypto_business"),
-        InlineKeyboardButton("⬅️ Back", callback_data="menu_subscription")
-    )
-    return m
-
-@bot.callback_query_handler(func=lambda c: c.data.startswith("crypto_"))
-def cb_process_crypto(call):
-    uid = call.from_user.id
-    plan = call.data.replace("crypto_", "")
-    bot.answer_callback_query(call.id, "Creating payment...")
-    
-    invoice = create_crypto_invoice(uid, plan)
-    if not invoice:
-        bot.send_message(uid, "❌ Could not create invoice.\nMake sure CRYPTO_BOT_TOKEN is correct.")
-        return
-    
-    url = invoice.get("bot_invoice_url")
-    if not url:
-        bot.send_message(uid, "❌ No payment link.")
-        return
-    
-    m = InlineKeyboardMarkup()
-    m.add(InlineKeyboardButton("💳 Pay Now", url=url))
-    
-    bot.send_message(uid,
-        f"✅ Payment for **{plan.capitalize()}** ready!\n"
-        f"Amount: ${[2.99,6.99,16.99][['starter','pro','business'].index(plan)]} USDT\n\n"
-        "Tap button to pay inside Telegram.",
-        reply_markup=m, parse_mode="Markdown")
-
-# ─────────────────────────────────────────────
-# CORE GENERATION WITH PROGRESS
+# CORE GENERATION
 # ─────────────────────────────────────────────
 def _generate_with_progress(uid, chat_id, history, s):
     progress_msg = bot.send_message(chat_id, make_progress_bar(0))
 
     def run_stages():
-        for stage in ["⚡ Analyzing...", "🧠 Thinking...", "✍️ Writing listing..."]:
+        for stage in LISTING_STAGES[1:]:
             time.sleep(0.7)
             try: bot.edit_message_text(stage, chat_id, progress_msg.message_id)
             except Exception: pass
