@@ -14,7 +14,7 @@ WEBHOOK_URL  = os.environ.get("WEBHOOK_URL", "")   # e.g. https://your-app.up.ra
 # 1. Start Flask webhook server
 import webhook
 webhook.start(port=PORT)
-time.sleep(1)  # Let Flask bind the port
+time.sleep(1)   # let Flask bind the port
 
 # 2. Register CryptoBot webhook URL
 if WEBHOOK_URL:
