@@ -6,9 +6,6 @@ import os
 import time
 import logging
 
-bot.delete_webhook()
-print("Webhook forcibly deleted")
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -35,6 +32,5 @@ else:
 # 3. Start Telegram bot (blocking)
 logger.info("Starting Telegram bot...")
 import seller_bot  # this calls bot.polling() at module end
-
 bot.delete_webhook()
-print("Webhook deleted")
+print("Webhook forcibly deleted")
