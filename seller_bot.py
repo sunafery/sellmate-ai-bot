@@ -127,23 +127,37 @@ def safe_edit(call_or_cid, text, markup, mid=None):
 # CRYPTO BOT
 # ─────────────────────────────────────────────
 def crypto_request(method, params=None):
-    if not CRYPTO_BOT_TOKEN: return None
+    if not CRYPTO_BOT_TOKEN: 
+        print("❌ CRYPTO_BOT_TOKEN not set")
+        return None
     try:
         data = json_module.dumps(params or {}).encode()
         req  = urllib.request.Request(
-            "https://pay.crypt.bot/api/" + method, data=data,
-            headers={"Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN, "Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            result = json_module.loads(r.read())
-            return result.get("result") if result.get("ok") else None
-    except Exception:
+            "https://pay.crypt.bot/api/" + method, 
+            data=data,
+            headers={
+                "Crypto-Pay-API-Token": CRYPTO_BOT_TOKEN, 
+                "Content-Type": "application/json"
+            }
+        )
+        with urllib.request.urlopen(req, timeout=15) as r:
+            result = json_module.loads(r.read().decode())
+            if not result.get("ok"):
+                print(f"❌ Crypto API Error: {result.get('error')}")
+                return None
+            return result.get("result")
+    except Exception as e:
+        print(f"❌ Crypto request error: {e}")
         return None
 
 def create_invoice(amount, label, payload):
     return crypto_request("createInvoice", {
-        "asset": "USDT", "amount": str(amount),
+        "asset": "USDT", 
+        "amount": str(amount),
         "description": "SellMate AI — " + label,
-        "payload": payload, "expires_in": 3600
+        "payload": payload, 
+        "expires_in": 3600,
+        "allow_anonymous": False
     })
 
 # ─────────────────────────────────────────────
@@ -945,12 +959,28 @@ def build_crypto_markup():
 def cb_process_crypto(call):
     uid = call.from_user.id
     plan = call.data.replace("crypto_", "")
-    bot.answer_callback_query(call.id)
+    bot.answer_callback_query(call.id, "Creating invoice...")
     
     invoice = create_crypto_invoice(uid, plan)
     if not invoice:
-        bot.send_message(uid, "❌ Failed to create invoice. Please try again later.")
+        bot.send_message(uid, "❌ Failed to create invoice.\n\n"
+                            "Make sure CRYPTO_BOT_TOKEN is correct in environment variables.")
         return
+    
+    url = invoice.get("bot_invoice_url") or invoice.get("pay_url")
+    if not url:
+        bot.send_message(uid, "❌ No payment link received from CryptoBot.")
+        return
+    
+    m = InlineKeyboardMarkup()
+    m.add(InlineKeyboardButton("💳 Open Crypto Payment", url=url))
+    m.add(InlineKeyboardButton("⬅️ Back", callback_data="pay_crypto"))
+    
+    bot.send_message(uid,
+        f"✅ Invoice for **{plan.capitalize()}** created!\n"
+        f"Amount: ${[2.99,6.99,16.99][['starter','pro','business'].index(plan)]} USDT\n\n"
+        "Tap the button below to pay inside Telegram.",
+        reply_markup=m, parse_mode="Markdown")
     
     url = invoice.get("bot_invoice_url") or invoice.get("pay_url")
     m = InlineKeyboardMarkup()
