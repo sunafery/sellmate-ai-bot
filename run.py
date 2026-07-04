@@ -5,8 +5,9 @@ then runs the Telegram bot.
 import os
 import time
 import logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(message)s")
-logger = logging.getLogger(__name__)
+import seller_bot
+
+seller_bot.bot.delete_webhook()
 
 PORT         = int(os.environ.get("PORT", 8080))
 WEBHOOK_URL  = os.environ.get("WEBHOOK_URL", "")   # e.g. https://your-app.up.railway.app
@@ -30,4 +31,5 @@ else:
 
 # 3. Start Telegram bot (blocking)
 logger.info("Starting Telegram bot...")
-import seller_bot   # this calls bot.polling() at module end
+
+
