@@ -8,7 +8,7 @@ from datetime import datetime
 logger = logging.getLogger("crypto_pay")
 
 CRYPTO_BOT_TOKEN = os.environ.get("CRYPTO_BOT_TOKEN", "")
-API_BASE         = "https://testnet-pay.crypt.bot/api"
+API_BASE         = "https://pay.cryptobot.app/api"
 
 PLANS = {
     "starter":  {"label": "Starter",  "amount": "2.99",  "days": 30},
