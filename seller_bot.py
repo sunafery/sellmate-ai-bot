@@ -128,33 +128,12 @@ def safe_edit(call_or_cid, text, markup, mid=None):
         bot.send_message(cid, text, reply_markup=markup)
 
 # ─────────────────────────────────────────────
-# CRYPTO PAY (module)
+# CRYPTO PAY (без CryptoBot — Railway блокирует pay.crypt.bot)
+# Используем Telegram Stars для автоматической оплаты
+# USDT — ручная обработка через support
 # ─────────────────────────────────────────────
-try:
-    import crypto_pay
-    import webhook as _webhook
-
-    def _on_crypto_payment(payment: dict):
-        """Called by webhook.py when CryptoBot confirms payment."""
-        uid      = payment["user_id"]
-        plan_key = payment["plan_key"]
-        days     = payment["days"]
-        expiry   = activate_plan(uid, plan_key, days)
-        labels   = {"starter": "🥉 Starter", "pro": "🥈 Pro", "business": "🥇 Business"}
-        try:
-            bot.send_message(uid,
-                "✅  Payment confirmed!\n\n"
-                + labels.get(plan_key, plan_key) + " plan is now active.\n"
-                "Valid until: " + expiry.strftime("%b %d, %Y") + "\n\n"
-                "Let's build your next bestseller 🚀",
-                reply_markup=build_main_menu())
-        except Exception as e:
-            logger.error(f"Could not notify user {uid}: {e}")
-
-    _webhook.register_payment_callback(_on_crypto_payment)
-    CRYPTO_READY = True
-except ImportError:
-    CRYPTO_READY = False
+USDT_ADDRESS = os.environ.get("USDT_ADDRESS", "")
+CRYPTO_READY = True  # Stars всегда работают
 
 # ─────────────────────────────────────────────
 # AI GENERATION WITH PROGRESS
