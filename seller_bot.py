@@ -1,7 +1,7 @@
 import telebot
 from telebot.types import LabeledPrice, InlineKeyboardMarkup, InlineKeyboardButton, BotCommand, BotCommandScopeChat, BotCommandScopeDefault
 import re, os, base64, time, threading, json as json_module
-import urllib.request, urllib.parse
+import urllib.request
 from datetime import datetime, timedelta
 from groq import Groq
 import logging
@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN")
 GROQ_API_KEY     = os.environ.get("GROQ_API_KEY")
-CRYPTO_BOT_TOKEN = os.environ.get("CRYPTO_BOT_TOKEN", "")
 BOT_USERNAME     = os.environ.get("BOT_USERNAME", "sellmate_ai_bot")
 
 bot    = telebot.TeleBot(TELEGRAM_TOKEN)
@@ -49,7 +48,6 @@ all_users             = set()
 user_plan             = {}
 user_first_seen       = {}
 user_last_request     = {}
-pending_crypto        = {}   # invoice_id -> {uid, plan, days}
 
 # ─────────────────────────────────────────────
 # HELPERS
@@ -530,22 +528,11 @@ def cmd_cryptotest(message):
     if message.from_user.id != OWNER_ID:
         return
     lines = []
-    token = os.environ.get("CRYPTO_BOT_TOKEN", "")
-    lines.append("CRYPTO_BOT_TOKEN: " + ("SET (" + str(len(token)) + " chars)" if token else "❌ EMPTY"))
+    lines.append("USDT_ADDRESS: " + (USDT_ADDRESS[:20] + "..." if USDT_ADDRESS else "❌ EMPTY"))
     lines.append("WEBHOOK_URL: " + (os.environ.get("WEBHOOK_URL","") or "❌ EMPTY"))
-    lines.append("CRYPTO_READY: " + str(CRYPTO_READY))
-
-    if CRYPTO_READY and token:
-        me = crypto_pay.get_me()
-        if me:
-            lines.append("CryptoBot API: ✅ Connected")
-            lines.append("App name: " + str(me.get("name","?")))
-            lines.append("App ID: " + str(me.get("app_id","?")))
-        else:
-            lines.append("CryptoBot API: ❌ FAILED — token wrong or network error")
-            lines.append("Check Railway logs for details")
-
-    bot.reply_to(message, "🔍 Crypto Diagnostics\n\n" + "\n".join(lines))
+    lines.append("Stars payment: ✅ Active (always works)")
+    lines.append("USDT payment: manual (Stars recommended)")
+    bot.reply_to(message, "🔍 Payment Diagnostics\n\n" + "\n".join(lines))
 
 
     if message.from_user.id != OWNER_ID: return
@@ -821,67 +808,48 @@ def cb_stars_pay(call):
 @bot.callback_query_handler(func=lambda c: c.data == "pay_usdt")
 def cb_usdt_menu(call):
     bot.answer_callback_query(call.id)
-    safe_edit(call, "💰  Pay with USDT\n\nChoose your plan — activates automatically:", build_usdt_markup())
+    addr = USDT_ADDRESS or "Contact support"
+    m = InlineKeyboardMarkup(row_width=1)
+    m.add(
+        InlineKeyboardButton("🥉 Starter — $2.99 USDT", callback_data="pay_usdt_starter"),
+        InlineKeyboardButton("🥈 Pro — $6.99 USDT",     callback_data="pay_usdt_pro"),
+        InlineKeyboardButton("🥇 Business — $16.99 USDT", callback_data="pay_usdt_business"),
+        InlineKeyboardButton("⬅️ Back", callback_data="menu_subscription")
+    )
+    safe_edit(call,
+        "💰  Pay with USDT (TRC-20)\n\n"
+        "Send USDT to this address:\n"
+        "`" + addr + "`\n\n"
+        "After payment:\n"
+        "1. Send screenshot here\n"
+        "2. Send /myid\n"
+        "Activated within 1 hour.\n\n"
+        "Choose your plan to see exact amount:", m)
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("pay_usdt_"))
 def cb_usdt_plan(call):
-    uid  = call.from_user.id
+    uid = call.from_user.id
     bot.answer_callback_query(call.id)
     plans = {
-        "pay_usdt_starter":  (2.99,  "Starter",  "starter",  30),
-        "pay_usdt_pro":      (6.99,  "Pro",       "pro",      30),
-        "pay_usdt_business": (16.99, "Business",  "business", 30),
+        "pay_usdt_starter":  ("2.99",  "Starter",  "starter",  30),
+        "pay_usdt_pro":      ("6.99",  "Pro",       "pro",      30),
+        "pay_usdt_business": ("16.99", "Business",  "business", 30),
     }
     plan = plans.get(call.data)
     if not plan: return
     amount, label, plan_key, days = plan
-
-    if not CRYPTO_READY or not crypto_pay.CRYPTO_BOT_TOKEN:
-        m = InlineKeyboardMarkup()
-        m.add(InlineKeyboardButton("✉️  Contact support", url="https://t.me/" + OWNER_USERNAME))
-        m.add(InlineKeyboardButton("⬅️ Back", callback_data="pay_usdt"))
-        bot.send_message(call.message.chat.id,
-            "⚠️  Crypto payments not configured yet.\n"
-            "Contact support to pay via USDT manually.", reply_markup=m)
-        return
-
-    plan_map = {
-        "pay_usdt_starter":  "starter",
-        "pay_usdt_pro":      "pro",
-        "pay_usdt_business": "business",
-    }
-    plan_key = plan_map.get(call.data)
-    plan_info = crypto_pay.PLANS.get(plan_key, {})
-
-    status_msg = bot.send_message(call.message.chat.id, "⏳  Creating payment...")
-
-    invoice = crypto_pay.create_invoice(uid, plan_key)
-    if invoice:
-        pay_url = invoice.get("pay_url", "")
-        amount  = plan_info.get("amount", "?")
-        label   = plan_info.get("label", plan_key)
-        m = InlineKeyboardMarkup(row_width=1)
-        m.add(InlineKeyboardButton("💳  Open Crypto Payment", url=pay_url))
-        m.add(InlineKeyboardButton("⬅️ Back", callback_data="pay_usdt"))
-        try:
-            bot.edit_message_text(
-                "💰  " + label + " — $" + str(amount) + " USDT\n\n"
-                "Tap the button below to pay inside Telegram.\n"
-                "✅  Subscription activates automatically after payment.",
-                call.message.chat.id, status_msg.message_id, reply_markup=m)
-        except Exception:
-            bot.send_message(call.message.chat.id,
-                "💰  " + label + " — $" + str(amount) + " USDT\n\n"
-                "Tap to pay inside Telegram:", reply_markup=m)
-    else:
-        m = InlineKeyboardMarkup()
-        m.add(InlineKeyboardButton("✉️  Contact support", url="https://t.me/" + OWNER_USERNAME))
-        try:
-            bot.edit_message_text(
-                "⚠️  Could not create payment. Please contact support.",
-                call.message.chat.id, status_msg.message_id, reply_markup=m)
-        except Exception:
-            pass
+    addr = USDT_ADDRESS or "Contact support for address"
+    m = InlineKeyboardMarkup(row_width=1)
+    m.add(
+        InlineKeyboardButton("✉️  Confirm payment to support", url="https://t.me/" + OWNER_USERNAME),
+        InlineKeyboardButton("⬅️ Back", callback_data="pay_usdt")
+    )
+    safe_edit(call,
+        "💰  " + label + " — $" + amount + " USDT\n\n"
+        "Send exactly $" + amount + " USDT (TRC-20) to:\n"
+        "`" + addr + "`\n\n"
+        "Then tap the button below, send the screenshot + /myid.\n"
+        "Subscription activates within 1 hour.", m)
 
 @bot.callback_query_handler(func=lambda c: c.data == "ref_hint")
 def cb_ref_hint(call):
