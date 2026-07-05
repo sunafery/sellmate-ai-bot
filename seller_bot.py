@@ -546,8 +546,29 @@ def cmd_history(message):
         m.add(InlineKeyboardButton(str(i+1) + "  " + preview + "…", callback_data="hist_"+str(i)))
     bot.reply_to(message, "📜  Your listings — tap to reload:", reply_markup=m)
 
-@bot.message_handler(commands=['stats'])
-def cmd_stats(message):
+@bot.message_handler(commands=['cryptotest'])
+def cmd_cryptotest(message):
+    if message.from_user.id != OWNER_ID:
+        return
+    lines = []
+    token = os.environ.get("CRYPTO_BOT_TOKEN", "")
+    lines.append("CRYPTO_BOT_TOKEN: " + ("SET (" + str(len(token)) + " chars)" if token else "❌ EMPTY"))
+    lines.append("WEBHOOK_URL: " + (os.environ.get("WEBHOOK_URL","") or "❌ EMPTY"))
+    lines.append("CRYPTO_READY: " + str(CRYPTO_READY))
+
+    if CRYPTO_READY and token:
+        me = crypto_pay.get_me()
+        if me:
+            lines.append("CryptoBot API: ✅ Connected")
+            lines.append("App name: " + str(me.get("name","?")))
+            lines.append("App ID: " + str(me.get("app_id","?")))
+        else:
+            lines.append("CryptoBot API: ❌ FAILED — token wrong or network error")
+            lines.append("Check Railway logs for details")
+
+    bot.reply_to(message, "🔍 Crypto Diagnostics\n\n" + "\n".join(lines))
+
+
     if message.from_user.id != OWNER_ID: return
     active = sum(1 for e in pro_users.values() if e > datetime.now())
     plans  = {}
