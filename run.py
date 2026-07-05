@@ -1,7 +1,9 @@
 """
-Entry point — starts Flask webhook server + Telegram bot with auto-restart.
+Entry point — runs the Telegram bot with auto-restart.
+Flask webhook removed (CryptoBot not accessible from Railway).
+Payments: Telegram Stars (automatic) + USDT manual.
 """
-import os, time, logging, threading
+import os, time, logging
 
 logging.basicConfig(
     level=logging.INFO,
@@ -9,33 +11,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("run")
 
-PORT        = int(os.environ.get("PORT", 8080))
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "").rstrip("/")
-
-# ── 1. Start Flask webhook server ─────────────────────────────
-import webhook
-webhook.start(port=PORT)
-time.sleep(1.5)
-logger.info(f"Flask webhook server running on port {PORT}")
-
-# ── 2. Register CryptoBot webhook URL ─────────────────────────
-if WEBHOOK_URL:
-    import crypto_pay
-    me = crypto_pay.get_me()
-    if me:
-        logger.info(f"CryptoBot API OK — app: {me.get('name','?')}")
-        full_url = WEBHOOK_URL + "/crypto-webhook"
-        ok = crypto_pay.set_webhook(full_url)
-        logger.info(f"Webhook {'registered' if ok else 'FAILED'}: {full_url}")
-    else:
-        logger.error("CryptoBot API returned None — check CRYPTO_BOT_TOKEN")
-else:
-    logger.warning("WEBHOOK_URL not set — skipping CryptoBot webhook registration")
-
-# ── 3. Import bot (registers all handlers) ────────────────────
 import seller_bot
 
-# ── 4. Run polling with auto-restart ─────────────────────────
 def run_bot():
     while True:
         try:
@@ -46,5 +23,4 @@ def run_bot():
             logger.info("Restarting in 5 seconds...")
             time.sleep(5)
 
-# Run in main thread so process stays alive
 run_bot()
