@@ -535,12 +535,17 @@ def cmd_cryptotest(message):
     bot.reply_to(message, "🔍 Payment Diagnostics\n\n" + "\n".join(lines))
 
 
+@bot.message_handler(commands=['stats'])
+def cmd_stats(message):
     if message.from_user.id != OWNER_ID: return
     active = sum(1 for e in pro_users.values() if e > datetime.now())
     plans  = {}
     for p in user_plan.values(): plans[p] = plans.get(p,0)+1
-    bot.reply_to(message, "📊  Stats\n\nUsers: " + str(len(all_users)) +
-        "\nActive subs: " + str(active) + "\nPlans: " + str(plans) +
+    bot.reply_to(message,
+        "📊  Stats\n\n"
+        "Total users: " + str(len(all_users)) +
+        "\nActive subs: " + str(active) +
+        "\nPlans: " + str(plans) +
         "\nReferrals: " + str(len(referred_by)))
 
 @bot.message_handler(commands=['activate'])
